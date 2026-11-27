@@ -479,10 +479,13 @@ int newGesture(lua_State* L) {
     const bool disableInhibit = false;
 
     if (functionRef != LUA_NOREF) {
+        auto luaMgr = Config::Lua::mgr();
+        lua_rawgeti(L, LUA_REGISTRYINDEX, functionRef);
         result = handler->addGesture(
-            makeUnique<CLuaFunctionGesture>(functionRef), gesture.fingers(), gesture.direction, modMask, deltaScale,
-            disableInhibit
+            makeUnique<CLuaFunctionGesture>(Config::Lua::CLuaRef{luaMgr->luaStateLifetime(), L, -1}),
+            gesture.fingers(), gesture.direction, modMask, deltaScale, disableInhibit
         );
+        lua_pop(L, 1);
     } else if (startRef != LUA_NOREF) {
         result = handler->addGesture(
             makeUnique<LuaTouchpadGesture>(gesture.type, startRef, updateRef, endRef), gesture.fingers(),

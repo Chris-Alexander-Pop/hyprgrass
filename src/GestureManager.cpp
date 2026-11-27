@@ -25,6 +25,8 @@
 #include <hyprland/src/state/MonitorState.hpp>
 #undef private
 
+#include <hyprland/src/config/lua/LuaCaller.hpp>
+
 #include <hyprutils/string/Numeric.hpp>
 
 #include <algorithm>
@@ -316,14 +318,28 @@ FindGestureResult GestureManager::handleGestureBind(std::string bind, GestureEve
             continue;
         }
 
-        auto luaMgr = dynamicPointerCast<Config::Lua::CConfigManager>(WP<Config::IConfigManager>(Config::mgr()));
+        auto luaMgr = Config::Lua::mgr();
+        if (!luaMgr || !luaMgr->m_lua) {
+            LOG(Log::ERR, "[hyprgrass] lua config manager missing for bind {}", bind);
+            continue;
+        }
+
+        // Registry index stored in the bind arg. CLuaCaller owns the timeout and the stack.
+        auto invoke = [&]() {
+            lua_rawgeti(luaMgr->m_lua, LUA_REGISTRYINDEX, *ref);
+            const auto called = luaMgr->caller().callPushed(
+                0, Config::Lua::CLuaCaller::LUA_TIMEOUT_KEYBIND_CALLBACK_MS, "hyprgrass bind"
+            );
+            if (!called)
+                LOG(Log::ERR, "[hyprgrass] bind {} failed: {}", bind, called.error());
+        };
 
         switch (type) {
             case GestureEventType::COMPLETED:
                 // mouse dispatchers only trigger on drag begin/end
                 if (!k->mouse) {
                     LOG(Log::DEBUG, "[hyprgrass] calling dispatcher ({})", bind);
-                    luaMgr->callLuaFn(*ref);
+                    invoke();
                     found =
                         std::max(found, k->nonConsuming ? FindGestureResult::NON_CONSUMING : FindGestureResult::FOUND);
                 }
@@ -340,7 +356,7 @@ FindGestureResult GestureManager::handleGestureBind(std::string bind, GestureEve
                 // yes this is how the lua dispatcher detects key press state
                 Config::Actions::state()->m_passPressed = static_cast<int>(pressed);
 
-                luaMgr->callLuaFn(*ref);
+                invoke();
 
                 Config::Actions::state()->m_passPressed = -1;
 
